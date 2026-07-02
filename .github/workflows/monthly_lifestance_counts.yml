@@ -1,10 +1,11 @@
 name: Monthly LifeStance Counts
 
 on:
+  # Allows you to test the workflow manually from the GitHub Actions page.
   workflow_dispatch:
 
+  # Runs on the first day of every month at 6:15 AM New York time.
   schedule:
-    # Runs on the 1st of every month at 6:15 AM New York time.
     - cron: "15 6 1 * *"
       timezone: "America/New_York"
 
@@ -16,9 +17,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  scrape-counts:
+  scrape-and-email:
+    name: Scrape, Email, and Save Counts
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Check out repository
@@ -28,6 +30,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install Python packages
         run: |
@@ -38,27 +41,39 @@ jobs:
         run: |
           python -m playwright install --with-deps chromium
 
-      - name: Run LifeStance counts scrape
+      - name: Confirm email secret exists
+        env:
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+        run: |
+          if [ -z "$SMTP_APP_PASSWORD" ]; then
+            echo "SMTP_APP_PASSWORD GitHub secret is missing."
+            exit 1
+          fi
+
+      - name: Run LifeStance scraper and email workbook
+        env:
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
         run: |
           python lifestance_counts.py --outdir lifestance_output
 
-      - name: Upload Excel output as artifact
+      - name: Upload Excel workbook
         uses: actions/upload-artifact@v4
         with:
           name: lifestance-state-counts-${{ github.run_id }}
           path: lifestance_output/*.xlsx
+          if-no-files-found: error
           retention-days: 180
 
-      - name: Commit monthly output
+      - name: Commit monthly workbook to repository
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add lifestance_output/*.xlsx
 
           if git diff --cached --quiet; then
-            echo "No new output to commit."
+            echo "No new workbook to commit."
           else
-            git commit -m "Monthly LifeStance counts $(date +'%Y-%m-%d')"
+            git commit -m "Add monthly LifeStance counts $(date +'%Y-%m-%d')"
             git push
           fi
