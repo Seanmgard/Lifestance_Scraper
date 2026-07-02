@@ -1,0 +1,5 @@
+pandas
+openpyxl
+xlsxwriter
+playwright
+nest_asyncio
