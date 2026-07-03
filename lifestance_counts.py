@@ -17,7 +17,10 @@ from playwright.async_api import (
 BASE_URL = "https://lifestance.com"
 TODAY = dt.date.today().isoformat()
 
-DEFAULT_PROVIDER_TYPES = ["therapist", "psychiatrist"]
+DEFAULT_PROVIDER_TYPES = [
+    "therapist",
+    "psychiatrist",
+]
 
 SENDER_EMAIL = "seanmgard@gmail.com"
 
@@ -135,9 +138,9 @@ def parse_csv_arg(value, default_values):
         return default_values
 
     return [
-        x.strip().lower()
-        for x in value.split(",")
-        if x.strip()
+        item.strip().lower()
+        for item in value.split(",")
+        if item.strip()
     ]
 
 
@@ -160,8 +163,8 @@ async def close_popups_if_present(page):
 
             count = await locator.count()
 
-            for i in range(min(count, 3)):
-                item = locator.nth(i)
+            for index in range(min(count, 3)):
+                item = locator.nth(index)
 
                 if await item.is_visible():
                     await item.click(timeout=2000)
@@ -294,8 +297,8 @@ async def scrape_all_counts(
 ):
     rows = []
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(
             headless=not headed
         )
 
@@ -321,13 +324,11 @@ async def scrape_all_counts(
                     f"{state.upper()}"
                 )
 
-                result = (
-                    await scrape_state_type_count(
-                        context=context,
-                        state=state,
-                        provider_type=provider_type,
-                        wait_ms=wait_ms,
-                    )
+                result = await scrape_state_type_count(
+                    context=context,
+                    state=state,
+                    provider_type=provider_type,
+                    wait_ms=wait_ms,
                 )
 
                 rows.append(result)
@@ -408,34 +409,39 @@ def make_state_counts(raw_counts_df):
 def autosize_excel_columns(
     writer,
     sheet_name,
-    df,
+    dataframe,
 ):
     worksheet = writer.sheets[sheet_name]
 
     worksheet.freeze_panes(1, 0)
 
-    for i, col in enumerate(df.columns):
-        if df.empty:
+    for index, column in enumerate(
+        dataframe.columns
+    ):
+        if dataframe.empty:
             sample_values = []
 
         else:
             sample_values = [
                 ""
-                if pd.isna(x)
-                else str(x)
-                for x in df[col]
+                if pd.isna(value)
+                else str(value)
+                for value in dataframe[column]
                 .head(1000)
                 .tolist()
             ]
 
         width = max(
-            [len(str(col))]
-            + [len(v) for v in sample_values]
+            [len(str(column))]
+            + [
+                len(value)
+                for value in sample_values
+            ]
         )
 
         worksheet.set_column(
-            i,
-            i,
+            index,
+            index,
             min(
                 max(width + 2, 10),
                 70,
@@ -463,6 +469,7 @@ def write_state_counts_workbook(
         )
 
         workbook = writer.book
+
         worksheet = writer.sheets[
             "State_Counts"
         ]
@@ -475,12 +482,12 @@ def write_state_counts_workbook(
             }
         )
 
-        for col_num, column_name in enumerate(
+        for column_number, column_name in enumerate(
             state_counts_df.columns
         ):
             worksheet.write(
                 0,
-                col_num,
+                column_number,
                 column_name,
                 header_format,
             )
@@ -496,6 +503,7 @@ def write_state_counts_workbook(
 
 def send_email_with_attachment(
     file_path: Path,
+    state_counts_df: pd.DataFrame,
 ):
     """
     Send the completed Excel workbook using Gmail SMTP.
@@ -523,6 +531,18 @@ def send_email_with_attachment(
             f"found: {file_path}"
         )
 
+    therapist_total = int(
+        state_counts_df["therapist"].sum()
+    )
+
+    psychiatrist_total = int(
+        state_counts_df["psychiatrist"].sum()
+    )
+
+    combined_total = int(
+        state_counts_df["total"].sum()
+    )
+
     message = EmailMessage()
 
     message["Subject"] = (
@@ -539,11 +559,9 @@ def send_email_with_attachment(
     message.set_content(
         f"""Attached is the LifeStance state-level provider count report for {TODAY}.
 
-The workbook includes therapist and psychiatrist counts by state.
-
-Sender: {SENDER_EMAIL}
-
-This email was generated automatically by the LifeStance GitHub Actions workflow.
+Therapists: {therapist_total:,}
+Psychiatrists: {psychiatrist_total:,}
+Total combined: {combined_total:,}
 """
     )
 
@@ -708,15 +726,18 @@ async def main_async():
             "\nEmail skipped because "
             "--skip-email was used."
         )
+
     else:
         send_email_with_attachment(
-            output_path
+            file_path=output_path,
+            state_counts_df=state_counts_df,
         )
 
     print("\nDone.")
     print(f"Workbook: {output_path}")
 
     print("\nState counts:")
+
     print(
         state_counts_df.to_string(
             index=False
