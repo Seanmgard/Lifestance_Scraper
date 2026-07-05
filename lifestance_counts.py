@@ -27,6 +27,7 @@ SENDER_EMAIL = "seanmgard@gmail.com"
 RECIPIENT_EMAILS = [
     "sean.gardner@ubs.com",
     "seanmgard@gmail.com",
+    "brett.gasaway@ubs.com",
 ]
 
 SMTP_HOST = "smtp.gmail.com"
